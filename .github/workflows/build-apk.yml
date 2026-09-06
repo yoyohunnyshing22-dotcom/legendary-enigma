@@ -1,0 +1,78 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate web app
+        run: npm run build
+
+      - name: Create Android project
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Make Gradle executable
+        run: chmod +x android/gradlew
+
+      - name: Build Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace --warning-mode all
+
+      - name: Find APK
+        run: |
+          set -e
+          find android/app/build/outputs/apk -type f -name '*.apk' -print
+          test -n "$(find android/app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: titonox-transcript-ai-debug-apk
+          path: android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo '===== Project files ====='
+          find . -maxdepth 4 -type f | sort | head -300
+
+          echo '===== Gradle files ====='
+          find android -maxdepth 4 \
+            \( -name 'gradlew' \
+            -o -name 'build.gradle*' \
+            -o -name 'settings.gradle*' \) \
+            -print 2>/dev/null || true
